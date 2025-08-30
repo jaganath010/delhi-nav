@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Delhi Disaster Navigation</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>🚨 Dynamic Disaster Navigation in Delhi</h1>
+    <p>
+      This project uses the <strong>D* Lite algorithm</strong> to find the safest route 
+      for emergency vehicles during disasters like fire, floods, and building collapses.
+    </p>
+
+    <h2>🗺️ Interactive Map</h2>
+    <p>Click to set: <strong>Start (Green)</strong> → <strong>Goal (Yellow)</strong></p>
+    <canvas id="mapCanvas" width="600" height="600"></canvas>
+
+    <div class="controls">
+      <button onclick="resetMap()">Reset Map</button>
+      <button onclick="addRandomDisaster()">Add Disaster</button>
+    </div>
+
+    <h2>📄 About the Algorithm</h2>
+    <p>
+      D* Lite is a dynamic pathfinding algorithm used in robotics and disaster response. 
+      It can <strong>replan instantly</strong> when new obstacles appear — perfect for real-time navigation.
+    </p>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
