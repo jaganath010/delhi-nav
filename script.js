@@ -1,4 +1,4 @@
-// script.js
+// script.js - Enhanced with Moving Ambulance
 const GRID_SIZE = 15;
 const CELL_SIZE = 40;
 const canvas = document.getElementById("mapCanvas");
@@ -18,19 +18,26 @@ const landmarks = {
 // Obstacles (disasters)
 let obstacles = new Set(["5,5", "5,6", "6,5", "6,6", "7,7", "4,9", "5,9"]);
 
-let start = null;
-let goal = null;
-let mode = "start"; // 'start', 'goal'
+// Start and Goal
+let start = [2, 2];  // AIIMS
+let goal = [12, 12]; // IGI Airport
 
 // D* Lite variables
 let g = {};
 let rhs = {};
 let openList = [];
 
+// Ambulance animation
+let path = [];
+let currentStep = 0;
+let animationId = null;
+let isMoving = false;
+
 // Draw grid
 function drawMap() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // Draw grid
   for (let x = 0; x < GRID_SIZE; x++) {
     for (let y = 0; y < GRID_SIZE; y++) {
       const key = `${x},${y}`;
@@ -54,86 +61,70 @@ function drawMap() {
     ctx.fillText(name, x * CELL_SIZE + CELL_SIZE / 2, y * CELL_SIZE + CELL_SIZE / 2);
   });
 
-  // Draw start and goal
-  if (start) {
-    ctx.fillStyle = "green";
-    ctx.fillRect(start[0] * CELL_SIZE, start[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-    ctx.fillStyle = "white";
-    ctx.fillText("Start", start[0] * CELL_SIZE + CELL_SIZE / 2, start[1] * CELL_SIZE + 20);
-  }
-  if (goal) {
-    ctx.fillStyle = "gold";
-    ctx.fillRect(goal[0] * CELL_SIZE, goal[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE);
-    ctx.fillStyle = "black";
-    ctx.fillText("Goal", goal[0] * CELL_SIZE + CELL_SIZE / 2, goal[1] * CELL_SIZE + 20);
+  // Draw goal
+  ctx.fillStyle = "gold";
+  ctx.fillRect(goal[0] * CELL_SIZE, goal[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+  ctx.fillStyle = "black";
+  ctx.fillText("Goal", goal[0] * CELL_SIZE + CELL_SIZE / 2, goal[1] * CELL_SIZE + 20);
+
+  // Draw path
+  if (path.length > 0) {
+    ctx.beginPath();
+    ctx.moveTo(path[0][0] * CELL_SIZE + CELL_SIZE / 2, path[0][1] * CELL_SIZE + CELL_SIZE / 2);
+    path.forEach(([x, y]) => {
+      ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2, y * CELL_SIZE + CELL_SIZE / 2);
+    });
+    ctx.strokeStyle = "blue";
+    ctx.lineWidth = 4;
+    ctx.stroke();
   }
 
-  // Compute and draw path
-  if (start && goal) {
-    computeShortestPath();
-    const path = extractPath();
-    if (path.length > 0) {
-      ctx.beginPath();
-      ctx.moveTo(path[0][0] * CELL_SIZE + CELL_SIZE / 2, path[0][1] * CELL_SIZE + CELL_SIZE / 2);
-      path.forEach(([x, y]) => {
-        ctx.lineTo(x * CELL_SIZE + CELL_SIZE / 2, y * CELL_SIZE + CELL_SIZE / 2);
-      });
-      ctx.strokeStyle = "blue";
-      ctx.lineWidth = 4;
-      ctx.stroke();
+  // Draw ambulance
+  if (isMoving && currentStep < path.length) {
+    const [x, y] = path[currentStep];
+    ctx.fillStyle = "green";
+    ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    ctx.fillStyle = "white";
+    ctx.fillText("🚑", x * CELL_SIZE + CELL_SIZE / 2, y * CELL_SIZE + CELL_SIZE / 2);
+  } else if (!isMoving && path.length > 0) {
+    const [x, y] = path[0];
+    ctx.fillStyle = "green";
+    ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    ctx.fillStyle = "white";
+    ctx.fillText("🚑", x * CELL_SIZE + CELL_SIZE / 2, y * CELL_SIZE + CELL_SIZE / 2);
+  }
+}
+
+// Compute path using D* Lite logic
+function computePath() {
+  // Reset
+  g = {};
+  rhs = {};
+
+  // Initialize goal
+  const goalKey = goal.join(",");
+  rhs[goalKey] = 0;
+  g[goalKey] = Infinity;
+
+  // Simple BFS-like update for demo
+  const queue = [goal];
+  while (queue.length) {
+    const u = queue.shift();
+    const uKey = u.join(",");
+    for (const v of getNeighbors(u)) {
+      const vKey = v.join(",");
+      const newCost = cost(u, v) + (g[uKey] !== undefined ? g[uKey] : Infinity);
+      if (newCost < (g[vKey] || Infinity)) {
+        g[vKey] = newCost;
+        queue.push(v);
+      }
     }
   }
-}
 
-// Mouse click
-canvas.addEventListener("click", (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.floor((e.clientX - rect.left) / CELL_SIZE);
-  const y = Math.floor((e.clientY - rect.top) / CELL_SIZE);
-
-  if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return;
-  if (obstacles.has(`${x},${y}`)) return;
-
-  if (mode === "start") {
-    start = [x, y];
-    mode = "goal";
-  } else if (mode === "goal") {
-    goal = [x, y];
-    mode = "done";
-  }
+  // Extract path
+  path = extractPath();
+  currentStep = 0;
   drawMap();
-});
-
-// D* Lite Functions
-function heuristic(a, b) {
-  return Math.hypot(a[0] - b[0], a[1] - b[1]);
-}
-
-function updateNode(u) {
-  const uKey = u.join(",");
-  if (uKey !== goal.join(",")) {
-    rhs[uKey] = Math.min(
-      ...getNeighbors(u).map(v => {
-        const vKey = v.join(",");
-        return cost(u, v) + (g[vKey] !== undefined ? g[vKey] : Infinity);
-      })
-    );
-  }
-
-  // Remove from open list
-  openList = openList.filter(([key, node]) => node !== uKey);
-
-  const g_val = g[uKey] !== undefined ? g[uKey] : Infinity;
-  const rhs_val = rhs[uKey] !== undefined ? rhs[uKey] : Infinity;
-
-  if (g_val !== rhs_val) {
-    const key = [
-      min(g_val, rhs_val) + heuristic(start, u),
-      min(g_val, rhs_val)
-    ];
-    openList.push([key, uKey]);
-    openList.sort((a, b) => a[0][0] - b[0][0]);
-  }
 }
 
 function getNeighbors(u) {
@@ -153,37 +144,11 @@ function getNeighbors(u) {
 
 function cost(u, v) {
   const vKey = v.join(",");
-  return obstacles.has(vKey) ? Infinity : heuristic(u, v);
-}
-
-function computeShortestPath() {
-  if (!goal) return;
-
-  // Initialize goal
-  const goalKey = goal.join(",");
-  rhs[goalKey] = 0;
-  g[goalKey] = Infinity;
-  updateNode(goal);
-
-  // Simple path update (for demo)
-  const queue = [goal];
-  while (queue.length) {
-    const u = queue.shift();
-    const uKey = u.join(",");
-    for (const v of getNeighbors(u)) {
-      const vKey = v.join(",");
-      const newCost = cost(u, v) + (g[uKey] !== undefined ? g[uKey] : Infinity);
-      if (newCost < (g[vKey] || Infinity)) {
-        g[vKey] = newCost;
-        queue.push(v);
-      }
-    }
-  }
+  return obstacles.has(vKey) ? Infinity : Math.hypot(u[0]-v[0], u[1]-v[1]);
 }
 
 function extractPath() {
-  if (!start || !goal) return [];
-  const path = [start];
+  const p = [start];
   let curr = start;
   while (!(curr[0] === goal[0] && curr[1] === goal[1])) {
     const neighbors = getNeighbors(curr).filter(n => !obstacles.has(n.join(",")));
@@ -193,19 +158,50 @@ function extractPath() {
       const gb = g[b.join(",")] || Infinity;
       return ga < gb ? a : b;
     });
-    path.push(curr);
-    if (path.length > 100) break;
+    p.push(curr);
+    if (p.length > 100) break;
   }
-  return path;
+  return p;
+}
+
+// Animation loop
+function moveAmbulance() {
+  if (currentStep < path.length - 1) {
+    currentStep++;
+    drawMap();
+    animationId = setTimeout(moveAmbulance, 800); // Move every 800ms
+  } else {
+    isMoving = false;
+    drawMap();
+    alert("🚑 Ambulance reached the destination!");
+  }
+}
+
+// Controls
+function startAnimation() {
+  if (path.length === 0) {
+    computePath();
+  }
+  isMoving = true;
+  moveAmbulance();
+}
+
+function stopAnimation() {
+  if (animationId) {
+    clearTimeout(animationId);
+    animationId = null;
+  }
+  isMoving = false;
+  drawMap();
 }
 
 function resetMap() {
-  start = null;
-  goal = null;
-  mode = "start";
+  stopAnimation();
   g = {};
   rhs = {};
-  openList = [];
+  path = [];
+  currentStep = 0;
+  isMoving = false;
   drawMap();
 }
 
@@ -213,11 +209,18 @@ function addRandomDisaster() {
   const x = Math.floor(Math.random() * GRID_SIZE);
   const y = Math.floor(Math.random() * GRID_SIZE);
   const key = `${x},${y}`;
-  if (!obstacles.has(key) && !(start && start[0] === x && start[1] === y) && !(goal && goal[0] === x && goal[1] === y)) {
+  if (!obstacles.has(key) && !(start[0] === x && start[1] === y) && !(goal[0] === x && goal[1] === y)) {
     obstacles.add(key);
-    drawMap();
+    if (isMoving) {
+      stopAnimation();
+      computePath();
+      startAnimation(); // Resume
+    } else {
+      computePath();
+    }
   }
 }
 
 // Initialize
+computePath();
 drawMap();
